@@ -1,39 +1,44 @@
 # Vault Settings Sync
 
-Use more than one Obsidian vault without setting each one up by hand. Settings, hotkeys, themes, CSS snippets and the community plugins you pick stay the same in every vault.
-
-Every vault points at one shared **hub folder**, for example a folder in iCloud Drive or Dropbox, or just a local folder. Each vault pushes its changes to the hub and pulls changes made in your other vaults. The hub is laid out like a `.obsidian` folder, so you can open it and read it.
+Use more than one Obsidian vault without setting each one up by hand. Pick your vaults, pick what to keep the same, and the plugin copies settings straight between them.
 
 ```
-Personal vault ─┐                 ┌─ Work vault
-                ├──  Hub folder  ──┤
-Writing vault  ─┘                 └─ Laptop vault (via iCloud)
+        ┌──────────── Personal ────────────┐
+        │                                  │
+      Work  ─────────────────────────  Writing
 ```
+
+Vaults can live anywhere on your computer, in any folder or on any drive, including folders synced by iCloud or Dropbox.
+
+## Set up
+
+1. Install the plugin in one vault (or in all of them).
+2. In **Settings → Vault Settings Sync → Vaults**, add the other vaults. Pick from the vaults Obsidian already knows, or type a folder path.
+3. Choose what to sync, then click **Preview** to see what will change, or **Sync now**.
 
 ## What you can sync
 
-You choose what syncs in each vault, item by item.
-
 | | Default |
 |---|---|
-| **Obsidian settings**: editor & files (`app.json`), appearance, hotkeys, enabled core plugins, graph, property types, and the settings of each core plugin (daily notes, templates…) | on |
-| **Enabled community plugins** (`community-plugins.json`) | off, because it turns plugins on and off everywhere |
-| **Themes** and **CSS snippets** | on |
-| **Each community plugin's settings** (`data.json`) | off: pick the ones you want |
-| **Each community plugin's files** (`main.js`, `manifest.json`, `styles.css`), which installs or updates the plugin in your other vaults | off: pick the ones you want |
+| **Obsidian settings**: editor & files (`app.json`), appearance, hotkeys, enabled core plugins, graph, property types, and each core plugin's settings (daily notes, templates…) | **on** |
+| **Enabled community plugins** (`community-plugins.json`) | off |
+| **Themes** and **CSS snippets** | off |
+| **Each community plugin's settings** (`data.json`) | off |
+| **Each community plugin's files** (`main.js`, `manifest.json`, `styles.css`), which installs or updates the plugin in the other vaults | off |
+
+Every community plugin found in any of the vaults is listed, each with its own two switches.
 
 These never sync: open tabs, the sidebar layout and saved workspaces (`workspace*.json`), and the plugins' own caches and logs.
 
 ## How it decides
 
-For each item, the plugin remembers what the item looked like the last time this vault synced it. That tells it which side changed:
+For each item, the plugin remembers what each vault's copy looked like the last time it synced. That tells it which vault changed the item:
 
-- **Changed in this vault** → push to the hub.
-- **Changed in the hub** (by another vault) → pull into this vault.
-- **Changed in both** → by default it asks. Open **Preview sync** and pick a side for each item. You can also set it to keep the newest copy, always this vault's, or always the hub's.
-- **Only on one side** → copied to the other side. Vaults end up with every theme, snippet and plugin any of them has.
+- **One vault changed it** → its copy goes to all the other vaults.
+- **A vault doesn't have it** → that vault gets a copy. Vaults end up with every theme, snippet and plugin you picked.
+- **Several vaults changed it, or the vaults differ the first time they sync** → it asks. Open **Preview** and choose whose copy to keep. You can also set it to keep the newest copy, or always this vault's.
 
-Deletions never spread. If you remove a theme or a plugin in one vault, it stays removed there, but your other vaults and the hub keep it.
+Deletions never spread. If you remove a snippet or plugin from one vault, it stays removed there, and the other vaults keep theirs.
 
 ## When it runs
 
@@ -41,28 +46,30 @@ Deletions never spread. If you remove a theme or a plugin in one vault, it stays
 - Every 5, 15, 30 or 60 minutes, if you turn that on.
 - Whenever you click the ribbon icon or run **Sync now**.
 
-The commands also include **Preview sync**, **Push everything picked to the hub** and **Pull everything picked from the hub**. The last two are for overwriting one side on purpose.
+**Preview sync** shows each change before it happens. **Make every vault match this one** copies everything you picked from the current vault to all the others.
 
-## Applying what it pulls
+## Applying changes
 
-- **Community plugin settings and files** apply straight away. The plugin stops each affected plugin, swaps the files, and starts it again, and its open tabs come back.
-- **Editor, appearance, hotkeys, themes and enabled plugins** apply after Obsidian reloads. A notice offers **Reload now**, or turn on **Reload automatically**.
+- Changes to the **vault you're in**:
+  - Community plugin settings and files apply straight away. The plugin stops each affected plugin, swaps its files and starts it again.
+  - Editor, appearance, hotkeys and themes apply after a reload. A notice offers **Reload now**, or turn on **Reload automatically**.
+- Changes to **another vault**:
+  - If that vault is closed, it sees them the next time it opens.
+  - If it's open, Obsidian picks up most settings files as they change.
 
 ## Safety
 
-- Before it overwrites anything in a vault, the plugin backs up the old files to `.obsidian/plugins/vault-settings-sync/backups/<time>/`. It keeps the last 10 backups.
-- An automatic sync never creates the hub folder. If a cloud drive isn't mounted yet, the sync is skipped.
-- Plugin settings can hold API keys and tokens. Only pick plugins whose settings you're happy to have in the hub folder.
+- Before it overwrites anything, the plugin backs up the old files, from every vault, to `.obsidian/plugins/vault-settings-sync/backups/<time>/<vault>/` in the vault running the sync. It keeps the last 10 backups.
+- A vault that can't be found (for example, on a drive that isn't plugged in) is skipped.
+- Plugin settings can hold API keys and tokens. Picking a plugin's settings copies them into each of your vaults.
 
 ## Install
 
 With [BRAT](https://github.com/TfTHacker/obsidian42-brat): add `himanshugupta2077/obsidian-vault-settings-sync`.
 
-By hand: download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/himanshugupta2077/obsidian-vault-settings-sync/releases) into `<vault>/.obsidian/plugins/vault-settings-sync/`. Reload Obsidian and turn on **Vault Settings Sync** in **Settings → Community plugins**.
+By hand: download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/himanshugupta2077/obsidian-vault-settings-sync/releases) into `<vault>/.obsidian/plugins/vault-settings-sync/`. Then reload Obsidian and turn on **Vault Settings Sync** in **Settings → Community plugins**.
 
-Do this in each vault, set the same hub folder in each, and run **Sync now** in the vault whose setup you like best first.
-
-Desktop only, because the hub folder is read with Node's file system access.
+Desktop only, because it reads other vaults' folders directly.
 
 ## Develop
 

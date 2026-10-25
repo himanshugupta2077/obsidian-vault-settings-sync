@@ -3,56 +3,67 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { backup, copyItem, decide, discover, expandHome, type Entry, type Item, plan, pruneBackups, snapshot } from "./engine.ts";
+import { backup, copyItem, discover, expandHome, type Entry, type Item, plan, type Policy, pruneBackups, targetsFor, type Vault } from "./engine.ts";
 
-function tmp(): string {
-	return mkdtempSync(join(tmpdir(), "vss-"));
+function vault(name: string): Vault {
+	const path = join(mkdtempSync(join(tmpdir(), "vss-")), name);
+	mkdirSync(join(path, ".obsidian"), { recursive: true });
+	return { path, name, root: join(path, ".obsidian") };
 }
 
-function put(root: string, rel: string, text: string): void {
-	mkdirSync(dirname(join(root, rel)), { recursive: true });
-	writeFileSync(join(root, rel), text);
+function put(v: Vault, rel: string, text: string): void {
+	mkdirSync(dirname(join(v.root, rel)), { recursive: true });
+	writeFileSync(join(v.root, rel), text);
 }
 
-function read(root: string, rel: string): string {
-	return readFileSync(join(root, rel), "utf8");
+function read(v: Vault, rel: string): string {
+	return readFileSync(join(v.root, rel), "utf8");
 }
 
-/** A tiny stand-in for the plugin: plan, then do what the plan says. */
-function sync(local: string, hub: string, items: Item[], last: Record<string, string>, override: Partial<Record<string, "push" | "pull">> = {}): Entry[] {
-	const entries = plan(local, hub, items, last, "ask");
+type Last = Record<string, Record<string, string>>;
+
+/** A tiny stand-in for the plugin: plan, then copy what the plan says. `pick` settles conflicts. */
+function sync(vaults: Vault[], last: Last, opts: { policy?: Policy; pick?: Record<string, number> } = {}): Entry[] {
+	const entries = plan(vaults, discover(vaults.map((v) => v.root), "self"), last, opts.policy ?? "ask");
 	for (const e of entries) {
-		const action = override[e.item.id] ?? e.action;
-		if (action === "push") {
-			copyItem(local, hub, e.item);
-			last[e.item.id] = e.local.hash;
-		} else if (action === "pull") {
-			copyItem(hub, local, e.item);
-			last[e.item.id] = e.hub.hash;
-		} else if (action === "none" && e.local.hash) last[e.item.id] = e.local.hash;
+		let { source, targets } = e;
+		if (opts.pick?.[e.item.id] !== undefined) {
+			source = opts.pick[e.item.id];
+			targets = targetsFor(e.sides, vaults.map((v) => last[v.path]?.[e.item.id]), source);
+		}
+		const remember = (i: number, hash: string) => ((last[vaults[i].path] ??= {})[e.item.id] = hash);
+		if (source === null) {
+			if (!e.conflict) e.sides.forEach((s, i) => s.hash && remember(i, s.hash));
+			continue;
+		}
+		for (const t of targets) {
+			copyItem(vaults[source].root, vaults[t].root, e.item);
+			remember(t, e.sides[source].hash);
+		}
+		remember(source, e.sides[source].hash);
 	}
 	return entries;
 }
 
-const byId = (items: Item[], id: string) => items.find((i) => i.id === id)!;
+const find = (entries: Entry[], id: string) => entries.find((e) => e.item.id === id)!;
+const copies = (entries: Entry[]) => entries.filter((e) => e.targets.length).map((e) => e.item.id);
 
 describe("discover", () => {
-	it("lists config files, themes, snippets and plugins from both sides", () => {
-		const local = tmp();
-		const hub = tmp();
-		put(local, "app.json", "{}");
-		put(local, "workspace.json", "{}");
-		put(local, "themes/Minimal/theme.css", "");
-		put(hub, "snippets/wide.css", "");
-		put(hub, "daily-notes.json", "{}");
-		put(local, "community-plugins.json", "[]");
-		put(local, "plugins/dataview/manifest.json", JSON.stringify({ name: "Dataview" }));
-		put(hub, "plugins/calendar/data.json", "{}");
-		put(local, "plugins/vault-settings-sync/data.json", "{}");
+	it("lists every vault's settings files, themes, snippets and plugins", () => {
+		const a = vault("a");
+		const b = vault("b");
+		put(a, "app.json", "{}");
+		put(a, "workspace.json", "{}");
+		put(a, "themes/Minimal/theme.css", "");
+		put(b, "snippets/wide.css", "");
+		put(b, "daily-notes.json", "{}");
+		put(a, "community-plugins.json", "[]");
+		put(a, "plugins/dataview/manifest.json", JSON.stringify({ name: "Dataview" }));
+		put(b, "plugins/calendar/data.json", "{}");
+		put(a, "plugins/self/data.json", "{}");
 
-		const items = discover(local, hub, "vault-settings-sync");
-		const ids = items.map((i) => i.id);
-		assert.deepEqual(ids, [
+		const items = discover([a.root, b.root], "self");
+		assert.deepEqual(items.map((i) => i.id), [
 			"core:app.json",
 			"core:community-plugins.json",
 			"core:daily-notes.json",
@@ -63,147 +74,134 @@ describe("discover", () => {
 			"plugin:dataview",
 			"plugin-files:dataview",
 		]);
-		assert.equal(byId(items, "core:app.json").label, "Editor, files & links");
-		assert.equal(byId(items, "core:community-plugins.json").defaultOn, false);
-		assert.equal(byId(items, "plugin:dataview").label, "Dataview");
-		assert.equal(byId(items, "plugin:calendar").label, "calendar");
-		assert.equal(byId(items, "theme:Minimal").key, "themes");
+		const byId = (id: string) => items.find((i) => i.id === id) as Item;
+		assert.equal(byId("core:app.json").label, "Editor, files & links");
+		assert.equal(byId("plugin:dataview").label, "Dataview");
+		assert.equal(byId("theme:Minimal").key, "themes");
+	});
+
+	it("picks only Obsidian's own settings by default", () => {
+		const a = vault("a");
+		put(a, "app.json", "{}");
+		put(a, "hotkeys.json", "{}");
+		put(a, "community-plugins.json", "[]");
+		put(a, "themes/Minimal/theme.css", "");
+		put(a, "snippets/wide.css", "");
+		put(a, "plugins/dataview/data.json", "{}");
+		const on = discover([a.root], "self").filter((i) => i.defaultOn).map((i) => i.id);
+		assert.deepEqual(on, ["core:app.json", "core:hotkeys.json"]);
 	});
 });
 
-describe("decide", () => {
-	const side = (hash: string, mtime = 0) => ({ hash, mtime });
+describe("sync between vaults", () => {
+	it("copies a change from whichever vault made it to all the others", () => {
+		const [personal, work, writing] = [vault("personal"), vault("work"), vault("writing")];
+		const vaults = [personal, work, writing];
+		const last: Last = {};
+		put(personal, "hotkeys.json", "1");
 
-	it("knows which side changed from the last synced hash", () => {
-		assert.equal(decide(side("a"), side("a"), undefined, "ask").action, "none");
-		assert.equal(decide(side("a"), side(""), undefined, "ask").action, "push");
-		assert.equal(decide(side(""), side("a"), undefined, "ask").action, "pull");
-		assert.equal(decide(side("a"), side("b"), "a", "ask").action, "pull");
-		assert.equal(decide(side("b"), side("a"), "a", "ask").action, "push");
-		assert.deepEqual(decide(side(""), side("a"), "a", "ask"), { action: "none", conflict: false, reason: "Removed in this vault" });
+		// The others never had it, so they just get it.
+		const first = sync(vaults, last);
+		assert.equal(find(first, "core:hotkeys.json").reason, "Missing in work, writing");
+		assert.equal(read(writing, "hotkeys.json"), "1");
+
+		// A change in work (not this vault) reaches personal and writing.
+		put(work, "hotkeys.json", "2");
+		const second = sync(vaults, last);
+		assert.equal(find(second, "core:hotkeys.json").reason, "Changed in work");
+		assert.deepEqual(find(second, "core:hotkeys.json").targets, [0, 2]);
+		assert.equal(read(personal, "hotkeys.json"), "2");
+		assert.equal(read(writing, "hotkeys.json"), "2");
+
+		assert.deepEqual(copies(sync(vaults, last)), []);
 	});
 
-	it("follows the policy when both changed", () => {
-		const l = side("l", 200);
-		const h = side("h", 100);
-		assert.deepEqual(decide(l, h, "x", "ask"), { action: "skip", conflict: true, reason: "Changed here and in the hub" });
-		assert.equal(decide(l, h, "x", "newest").action, "push");
-		assert.equal(decide(side("l", 1), h, "x", "newest").action, "pull");
-		assert.equal(decide(l, h, "x", "local").action, "push");
-		assert.equal(decide(l, h, undefined, "hub").action, "pull");
-	});
-});
-
-describe("sync between two vaults", () => {
-	it("carries a change from one vault to the other through the hub", () => {
-		const personal = tmp();
-		const work = tmp();
-		const hub = tmp();
-		const lastP: Record<string, string> = {};
-		const lastW: Record<string, string> = {};
-		put(personal, "hotkeys.json", '{"a":1}');
-		put(personal, "snippets/wide.css", "body{}");
-		put(personal, "snippets/old.css", "p{}");
-		const items = () => discover(personal, hub, "self");
-
-		sync(personal, hub, items(), lastP);
-		assert.equal(read(hub, "hotkeys.json"), '{"a":1}');
-
-		// The work vault has never synced and has nothing yet: it just receives everything.
-		const pulled = sync(work, hub, discover(work, hub, "self"), lastW);
-		assert.deepEqual(pulled.filter((e) => e.action === "pull").map((e) => e.item.id), ["core:hotkeys.json", "snippet:old.css", "snippet:wide.css"]);
-		assert.equal(read(work, "snippets/wide.css"), "body{}");
-
-		// Change a setting and edit a snippet in work; personal gets both on its next sync.
-		put(work, "hotkeys.json", '{"a":2}');
-		put(work, "snippets/wide.css", "body{color:red}");
-		sync(work, hub, discover(work, hub, "self"), lastW);
-		const again = sync(personal, hub, items(), lastP);
-		assert.deepEqual(again.filter((e) => e.action === "pull").map((e) => e.item.id), ["core:hotkeys.json", "snippet:wide.css"]);
-		assert.equal(read(personal, "hotkeys.json"), '{"a":2}');
-		assert.equal(read(personal, "snippets/wide.css"), "body{color:red}");
-
-		// A snippet removed in work stays removed there, and personal keeps its copy.
-		rmSync(join(work, "snippets/old.css"));
-		sync(work, hub, discover(work, hub, "self"), lastW);
-		assert.equal(existsSync(join(work, "snippets/old.css")), false);
-		assert.equal(read(personal, "snippets/old.css"), "p{}");
-
-		// Now everything settles.
-		assert.ok(sync(personal, hub, items(), lastP).every((e) => e.action === "none"));
-		assert.ok(sync(work, hub, discover(work, hub, "self"), lastW).every((e) => e.action === "none"));
-	});
-
-	it("flags a conflict when both changed, and keeps the side the user picks", () => {
-		const a = tmp();
-		const b = tmp();
-		const hub = tmp();
-		const lastA: Record<string, string> = {};
-		const lastB: Record<string, string> = {};
-		put(a, "app.json", "1");
-		sync(a, hub, discover(a, hub, "self"), lastA);
-		sync(b, hub, discover(b, hub, "self"), lastB);
+	it("asks when vaults differ the first time they meet, then keeps the copy picked", () => {
+		const [a, b] = [vault("a"), vault("b")];
+		const last: Last = {};
 		put(a, "app.json", "from a");
 		put(b, "app.json", "from b");
-		sync(a, hub, discover(a, hub, "self"), lastA);
 
-		const entries = sync(b, hub, discover(b, hub, "self"), lastB);
-		const app = entries.find((e) => e.item.id === "core:app.json")!;
-		assert.equal(app.action, "skip");
+		const entries = sync([a, b], last);
+		const app = find(entries, "core:app.json");
 		assert.equal(app.conflict, true);
+		assert.equal(app.source, null);
+		assert.equal(app.reason, "Different in a, b");
 		assert.equal(read(b, "app.json"), "from b");
 
-		sync(b, hub, discover(b, hub, "self"), lastB, { "core:app.json": "push" });
-		assert.equal(read(hub, "app.json"), "from b");
-		sync(a, hub, discover(a, hub, "self"), lastA);
+		sync([a, b], last, { pick: { "core:app.json": 1 } });
 		assert.equal(read(a, "app.json"), "from b");
+		assert.deepEqual(copies(sync([a, b], last)), []);
 	});
 
-	it("adds themes from both vaults instead of replacing one set with the other", () => {
-		const a = tmp();
-		const b = tmp();
-		const hub = tmp();
+	it("flags a conflict when two vaults changed the same thing", () => {
+		const [a, b, c] = [vault("a"), vault("b"), vault("c")];
+		const last: Last = {};
+		put(a, "app.json", "0");
+		sync([a, b, c], last);
+		put(a, "app.json", "a");
+		put(c, "app.json", "c");
+		const e = find(sync([a, b, c], last), "core:app.json");
+		assert.equal(e.conflict, true);
+		assert.deepEqual(e.choices, [0, 2]);
+		assert.equal(read(b, "app.json"), "0");
+	});
+
+	it("settles conflicts by policy", () => {
+		const [a, b] = [vault("a"), vault("b")];
+		put(a, "app.json", "old");
+		put(b, "app.json", "new");
+		utimesSync(join(a.root, "app.json"), 1000, 1000);
+		const newest = plan([a, b], discover([a.root, b.root], "self"), {}, "newest")[0];
+		assert.deepEqual([newest.source, newest.targets], [1, [0]]);
+		const mine = plan([a, b], discover([a.root, b.root], "self"), {}, "this")[0];
+		assert.deepEqual([mine.source, mine.targets], [0, [1]]);
+	});
+
+	it("gives every vault every theme instead of replacing one set with another", () => {
+		const [a, b] = [vault("a"), vault("b")];
 		put(a, "themes/Minimal/theme.css", "m");
 		put(b, "themes/Things/theme.css", "t");
-		sync(a, hub, discover(a, hub, "self"), {});
-		sync(b, hub, discover(b, hub, "self"), {});
-		sync(a, hub, discover(a, hub, "self"), {});
-		assert.deepEqual(readdirSync(join(a, "themes")).sort(), ["Minimal", "Things"]);
-		assert.deepEqual(readdirSync(join(b, "themes")).sort(), ["Minimal", "Things"]);
+		sync([a, b], {});
+		assert.deepEqual(readdirSync(join(a.root, "themes")).sort(), ["Minimal", "Things"]);
+		assert.deepEqual(readdirSync(join(b.root, "themes")).sort(), ["Minimal", "Things"]);
 	});
 
-	it("never deletes a plugin from the other side", () => {
-		const local = tmp();
-		const hub = tmp();
-		put(hub, "plugins/calendar/main.js", "code");
-		put(hub, "plugins/calendar/data.json", "{}");
-		const last: Record<string, string> = {};
-		const entries = sync(local, hub, discover(local, hub, "self"), last);
-		assert.equal(entries.find((e) => e.item.id === "plugin-files:calendar")!.action, "pull");
-		assert.equal(read(local, "plugins/calendar/main.js"), "code");
-		// Plugin files are only main.js, manifest.json and styles.css.
-		put(local, "plugins/calendar/cache.json", "x");
-		assert.equal(snapshot(local, byId(discover(local, hub, "self"), "plugin-files:calendar")).hash, last["plugin-files:calendar"]);
+	it("leaves a removed snippet removed, without deleting it anywhere else", () => {
+		const [a, b] = [vault("a"), vault("b")];
+		const last: Last = {};
+		put(a, "snippets/old.css", "p{}");
+		sync([a, b], last);
+		rmSync(join(b.root, "snippets/old.css"));
+		const e = find(sync([a, b], last), "snippet:old.css");
+		assert.deepEqual(e.targets, []);
+		assert.equal(e.reason, "In sync; removed in b");
+		assert.equal(existsSync(join(b.root, "snippets/old.css")), false);
+		assert.equal(read(a, "snippets/old.css"), "p{}");
+
+		// A later change in a still doesn't bring it back to b.
+		put(a, "snippets/old.css", "p{color:red}");
+		assert.deepEqual(find(sync([a, b], last), "snippet:old.css").targets, []);
 	});
 
-	it("uses the newest side under the newest policy", () => {
-		const local = tmp();
-		const hub = tmp();
-		put(local, "app.json", "old");
-		put(hub, "app.json", "new");
-		utimesSync(join(local, "app.json"), 1000, 1000);
-		const [entry] = plan(local, hub, discover(local, hub, "self").filter((i) => i.id === "core:app.json"), {}, "newest");
-		assert.equal(entry.action, "pull");
+	it("copies only a plugin's code as plugin files, not its caches", () => {
+		const [a, b] = [vault("a"), vault("b")];
+		put(a, "plugins/calendar/main.js", "code");
+		put(a, "plugins/calendar/cache.json", "x");
+		sync([a, b], {});
+		assert.equal(read(b, "plugins/calendar/main.js"), "code");
+		assert.equal(existsSync(join(b.root, "plugins/calendar/cache.json")), false);
 	});
 });
 
 describe("backups", () => {
 	it("copies an item's files and keeps only the newest folders", () => {
-		const root = tmp();
-		const dir = tmp();
-		put(root, "snippets/a.css", "a");
-		backup(root, byId(discover(root, tmp(), "self"), "snippet:a.css"), join(dir, "2026-01-03"));
-		assert.equal(read(join(dir, "2026-01-03"), "snippets/a.css"), "a");
+		const a = vault("a");
+		const dir = mkdtempSync(join(tmpdir(), "vss-"));
+		put(a, "snippets/a.css", "a");
+		const item = discover([a.root], "self").find((i) => i.id === "snippet:a.css") as Item;
+		backup(a.root, item, join(dir, "2026-01-03"));
+		assert.equal(readFileSync(join(dir, "2026-01-03", "snippets/a.css"), "utf8"), "a");
 		mkdirSync(join(dir, "2026-01-01"));
 		mkdirSync(join(dir, "2026-01-02"));
 		pruneBackups(dir, 2);

@@ -1,9 +1,9 @@
 {
 	"id": "vault-settings-sync",
 	"name": "Vault Settings Sync",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"minAppVersion": "1.7.2",
-	"description": "Keep settings, hotkeys, themes, snippets and the community plugins you pick in step across all your vaults, through one shared folder.",
+	"description": "Pick your vaults and keep their settings, hotkeys, themes, snippets and the community plugins you choose the same, copied straight between them.",
 	"author": "Himanshu Gupta",
 	"authorUrl": "https://github.com/himanshugupta2077",
 	"isDesktopOnly": true

@@ -1,7 +1,7 @@
 {
 	"name": "obsidian-vault-settings-sync",
-	"version": "1.0.0",
-	"description": "Keep settings, hotkeys, themes, snippets and the community plugins you pick in step across all your vaults, through one shared folder.",
+	"version": "1.1.0",
+	"description": "Pick your vaults and keep their settings, hotkeys, themes, snippets and the community plugins you choose the same, copied straight between them.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
