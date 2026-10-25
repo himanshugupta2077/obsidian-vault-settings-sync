@@ -1,0 +1,31 @@
+{
+	"name": "obsidian-vault-settings-sync",
+	"version": "1.0.0",
+	"description": "Keep settings, hotkeys, themes, snippets and the community plugins you pick in step across all your vaults, through one shared folder.",
+	"main": "main.js",
+	"type": "module",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"test": "node --experimental-strip-types --test src/engine.test.ts"
+	},
+	"keywords": [
+		"obsidian",
+		"plugin",
+		"settings",
+		"sync",
+		"vaults"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/himanshugupta2077/obsidian-vault-settings-sync.git"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"esbuild": "0.25.5",
+		"obsidian": "latest",
+		"tslib": "2.4.0",
+		"typescript": "^5.8.3"
+	}
+}
