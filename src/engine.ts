@@ -32,6 +32,8 @@ export interface Item {
 	plugin?: string;
 	/** Whether the item is picked before the user has chosen. */
 	defaultOn: boolean;
+	/** Part of how the vault looks. These sync only when appearance syncing is turned on. */
+	appearance?: boolean;
 }
 
 export interface Vault {
@@ -72,7 +74,6 @@ const SKIP_ROOT = new Set(["workspace.json", "workspace-mobile.json", "workspace
 
 const CORE_LABELS: Record<string, string> = {
 	"app.json": "Editor, files & links",
-	"appearance.json": "Appearance",
 	"hotkeys.json": "Hotkeys",
 	"core-plugins.json": "Enabled core plugins",
 	"types.json": "Property types",
@@ -88,6 +89,9 @@ const CORE_LABELS: Record<string, string> = {
 	"note-composer.json": "Note composer",
 	"switcher.json": "Quick switcher",
 };
+
+/** Plugins whose settings are styling, so they belong with appearance rather than with the plugin. */
+const APPEARANCE_PLUGINS = new Set(["obsidian-style-settings"]);
 
 /** Plugin code; anything else in a plugin's folder (caches, logs) is the plugin's own business. */
 const PLUGIN_FILES = ["main.js", "manifest.json", "styles.css"];
@@ -135,6 +139,11 @@ export function discover(roots: string[], self: string): Item[] {
 	const rootJson = new Set(roots.flatMap((r) => list(r).filter((n) => n.endsWith(".json") && !isDir(join(r, n)))));
 	for (const file of [...rootJson].sort()) {
 		if (SKIP_ROOT.has(file)) continue;
+		if (file === "appearance.json") {
+			// Theme, fonts and enabled snippets: only right for a vault that has the same themes.
+			items.push({ id: "core:appearance.json", key: "core:appearance.json", label: "Appearance settings", detail: file, group: "appearance", paths: [file], defaultOn: false, appearance: true });
+			continue;
+		}
 		items.push({
 			id: `core:${file}`,
 			key: `core:${file}`,
@@ -149,11 +158,11 @@ export function discover(roots: string[], self: string): Item[] {
 	// One item per theme and per snippet, so vaults with different ones end up with all of them.
 	const themes = new Set(roots.flatMap((r) => list(join(r, "themes")).filter((n) => isDir(join(r, "themes", n)))));
 	for (const name of [...themes].sort()) {
-		items.push({ id: `theme:${name}`, key: "themes", label: `Theme: ${name}`, detail: `themes/${name}/`, group: "appearance", paths: [`themes/${name}`], defaultOn: false });
+		items.push({ id: `theme:${name}`, key: "themes", label: `Theme: ${name}`, detail: `themes/${name}/`, group: "appearance", paths: [`themes/${name}`], defaultOn: false, appearance: true });
 	}
 	const snippets = new Set(roots.flatMap((r) => list(join(r, "snippets")).filter((n) => n.endsWith(".css"))));
 	for (const name of [...snippets].sort()) {
-		items.push({ id: `snippet:${name}`, key: "snippets", label: `Snippet: ${name}`, detail: `snippets/${name}`, group: "appearance", paths: [`snippets/${name}`], defaultOn: false });
+		items.push({ id: `snippet:${name}`, key: "snippets", label: `Snippet: ${name}`, detail: `snippets/${name}`, group: "appearance", paths: [`snippets/${name}`], defaultOn: false, appearance: true });
 	}
 
 	const ids = new Set(roots.flatMap((r) => list(join(r, "plugins")).filter((n) => isDir(join(r, "plugins", n)))));
@@ -161,7 +170,7 @@ export function discover(roots: string[], self: string): Item[] {
 		if (id === self) continue;
 		const name = pluginName(roots, id);
 		items.push(
-			{ id: `plugin:${id}`, key: `plugin:${id}`, label: name, detail: `plugins/${id}/data.json`, group: "plugin", paths: [`plugins/${id}/data.json`], plugin: id, defaultOn: false },
+			{ id: `plugin:${id}`, key: `plugin:${id}`, label: name, detail: `plugins/${id}/data.json`, group: "plugin", paths: [`plugins/${id}/data.json`], plugin: id, defaultOn: false, appearance: APPEARANCE_PLUGINS.has(id) || undefined },
 			{ id: `plugin-files:${id}`, key: `plugin-files:${id}`, label: name, detail: `plugins/${id}/`, group: "plugin", paths: PLUGIN_FILES.map((f) => `plugins/${id}/${f}`), plugin: id, defaultOn: false },
 		);
 	}

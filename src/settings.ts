@@ -86,11 +86,7 @@ export class SyncSettingTab extends PluginSettingTab {
 		this.section("Obsidian settings", "Each settings file in the config folder. Open tabs and workspace layouts never sync.", core.map((e) => e.item.key));
 		for (const e of core) this.itemRow(e.item.label, e.item.detail, e.item.key, [e], vaults);
 
-		const themes = entries.filter((e) => e.item.key === "themes");
-		const snippets = entries.filter((e) => e.item.key === "snippets");
-		this.section("Themes & snippets", "Every vault ends up with every theme and snippet any of them has.", ["themes", "snippets"]);
-		this.itemRow("Themes", this.count(themes, "theme", vaults), "themes", themes, vaults);
-		this.itemRow("CSS snippets", this.count(snippets, "snippet", vaults), "snippets", snippets, vaults);
+		this.appearanceSection(entries, vaults);
 
 		// Plugins every vault has can sync; the others are listed apart, to install where missing.
 		const ids = [...new Set(entries.filter((e) => e.item.group === "plugin").map((e) => e.item.plugin as string))];
@@ -126,6 +122,32 @@ export class SyncSettingTab extends PluginSettingTab {
 			details.createEl("p", { cls: "vss-muted", text: "Install a plugin where it's missing to sync it. Installing copies it from a vault that has it and turns it on." });
 			for (const id of partial) this.installRow(details, id, byId, vaults);
 		}
+	}
+
+	/** Appearance stays each vault's own unless the user turns it on: a theme or snippet one vault
+	 * enables may not exist in another. */
+	private appearanceSection(entries: Entry[], vaults: Vault[]): void {
+		const { containerEl } = this;
+		const plugin = this.plugin;
+		const s = plugin.settings;
+		new Setting(containerEl).setName("Appearance").setHeading();
+		new Setting(containerEl)
+			.setName("Sync appearance")
+			.setDesc("Off: each vault keeps its own theme, fonts, CSS snippets and Style Settings, and none of them is copied. Turn on only if your vaults use the same themes.")
+			.addToggle((t) => t.setValue(s.syncAppearance).onChange(async (v) => {
+				s.syncAppearance = v;
+				await plugin.save();
+				this.display();
+			}));
+		if (!s.syncAppearance) return;
+
+		const look = entries.find((e) => e.item.id === "core:appearance.json");
+		const themes = entries.filter((e) => e.item.key === "themes");
+		const snippets = entries.filter((e) => e.item.key === "snippets");
+		if (look) this.itemRow(look.item.label, "Theme choice, fonts, enabled snippets (appearance.json)", look.item.key, [look], vaults);
+		this.itemRow("Themes", this.count(themes, "theme", vaults), "themes", themes, vaults);
+		this.itemRow("CSS snippets", this.count(snippets, "snippet", vaults), "snippets", snippets, vaults);
+		containerEl.createEl("p", { cls: "vss-muted", text: "Every vault ends up with every theme and snippet any of them has. Style Settings follows its plugin's Settings switch below." });
 	}
 
 	private vaultSection(vaults: Vault[], missing: string[]): void {
@@ -223,7 +245,7 @@ export class SyncSettingTab extends PluginSettingTab {
 	private itemRow(label: string, detail: string, key: string, entries: Entry[], vaults: Vault[]): void {
 		const setting = new Setting(this.containerEl).setName(label).setDesc(detail);
 		this.status(setting.nameEl, entries, vaults);
-		setting.addToggle((t) => t.setValue(this.plugin.settings.selected[key] ?? entries[0]?.item.defaultOn ?? false).onChange(async (v) => {
+		setting.addToggle((t) => t.setValue(entries[0] ? this.plugin.isSelected(entries[0].item) : (this.plugin.settings.selected[key] ?? false)).onChange(async (v) => {
 			this.plugin.settings.selected[key] = v;
 			await this.plugin.save();
 			this.display();
@@ -255,9 +277,11 @@ export class SyncSettingTab extends PluginSettingTab {
 		setting.settingEl.dataset.search = `${data.item.label} ${id}`.toLowerCase();
 		if (this.filter && !setting.settingEl.dataset.search.includes(this.filter)) setting.settingEl.hide();
 		this.status(setting.nameEl, [data, code], vaults);
+		const locked = data.item.appearance && !this.plugin.settings.syncAppearance;
+		if (locked) setting.setDesc(`${id} · its settings are appearance; turn on Sync appearance to sync them`);
 		for (const [entry, label] of [[data, "Settings"], [code, "Same version"]] as const) {
 			setting.controlEl.createSpan({ cls: "vss-toggle-label", text: label });
-			setting.addToggle((t) => t.setValue(this.plugin.isSelected(entry.item)).onChange(async (v) => {
+			setting.addToggle((t) => t.setValue(this.plugin.isSelected(entry.item)).setDisabled(!!locked && entry === data).onChange(async (v) => {
 				this.plugin.settings.selected[entry.item.key] = v;
 				await this.plugin.save();
 				this.display();

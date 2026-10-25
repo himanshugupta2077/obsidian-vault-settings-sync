@@ -13,6 +13,8 @@ export interface Settings {
 	policy: Policy;
 	/** Reload Obsidian by itself when new settings need it. */
 	autoReload: boolean;
+	/** Sync appearance settings, themes, snippets and Style Settings. Off keeps each vault's look its own. */
+	syncAppearance: boolean;
 	/** Item key → picked. Missing keys use the item's default. */
 	selected: Record<string, boolean>;
 	/** Vault folder → item id → the hash that vault had after it last synced the item. */
@@ -25,6 +27,7 @@ const DEFAULTS: Settings = {
 	intervalMinutes: 0,
 	policy: "ask",
 	autoReload: false,
+	syncAppearance: false,
 	selected: {},
 	last: {},
 };
@@ -118,6 +121,7 @@ export default class SettingsSyncPlugin extends Plugin {
 	}
 
 	isSelected(item: Item): boolean {
+		if (item.appearance && !this.settings.syncAppearance) return false;
 		return this.settings.selected[item.key] ?? item.defaultOn;
 	}
 

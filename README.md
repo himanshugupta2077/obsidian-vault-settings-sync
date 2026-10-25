@@ -20,10 +20,14 @@ Vaults can live anywhere on your computer, in any folder or on any drive, includ
 
 | | Default |
 |---|---|
-| **Obsidian settings**: editor & files (`app.json`), appearance, hotkeys, enabled core plugins, graph, property types, and each core plugin's settings (daily notes, templates…) | **on** |
-| **Themes** and **CSS snippets** | off |
+| **Obsidian settings**: editor & files (`app.json`), hotkeys, enabled core plugins, graph, property types, and each core plugin's settings (daily notes, templates…) | **on** |
+| **Appearance**: appearance settings (theme choice, fonts, enabled snippets), themes, CSS snippets and Style Settings | off |
 | **Each community plugin's settings** (`data.json`) | off |
 | **Each community plugin's version** (`main.js`, `manifest.json`, `styles.css`) | off |
+
+## Appearance
+
+Each vault keeps its own look unless you turn on **Sync appearance**. While it's off, nothing about appearance is copied: not `appearance.json`, not themes or snippets, and not the Style Settings plugin's settings, even if you picked them earlier. Turn it on only if your vaults use the same themes; a theme one vault picks may not exist in another.
 
 ## Community plugins
 

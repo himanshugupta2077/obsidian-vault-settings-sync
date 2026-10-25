@@ -79,6 +79,22 @@ describe("discover", () => {
 		assert.equal(byId("theme:Minimal").key, "themes");
 	});
 
+	it("marks appearance settings, themes, snippets and Style Settings as appearance, off by default", () => {
+		const a = vault("a");
+		put(a, "app.json", "{}");
+		put(a, "appearance.json", "{}");
+		put(a, "themes/Minimal/theme.css", "");
+		put(a, "snippets/wide.css", "");
+		put(a, "plugins/obsidian-style-settings/data.json", "{}");
+		put(a, "plugins/dataview/data.json", "{}");
+		const items = discover([a.root], "self");
+		const look = items.filter((i) => i.appearance).map((i) => i.id);
+		assert.deepEqual(look, ["core:appearance.json", "theme:Minimal", "snippet:wide.css", "plugin:obsidian-style-settings"]);
+		assert.ok(items.filter((i) => i.appearance).every((i) => !i.defaultOn));
+		assert.equal(items.find((i) => i.id === "core:appearance.json")?.group, "appearance");
+		assert.ok(!items.find((i) => i.id === "plugin-files:obsidian-style-settings")?.appearance);
+	});
+
 	it("picks only Obsidian's own settings by default", () => {
 		const a = vault("a");
 		put(a, "app.json", "{}");
