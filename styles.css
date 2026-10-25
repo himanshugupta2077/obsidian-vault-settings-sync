@@ -64,3 +64,13 @@
 	min-width: 0;
 	overflow-wrap: anywhere;
 }
+
+.vss-partial {
+	margin: var(--size-4-3) 0;
+}
+
+.vss-partial > summary {
+	cursor: pointer;
+	color: var(--text-muted);
+	padding: var(--size-4-2) 0;
+}

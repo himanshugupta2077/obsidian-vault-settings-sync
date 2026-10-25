@@ -1,11 +1,12 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { Entry, expandHome, knownVaults, Policy, Vault } from "./engine";
+import { Entry, expandHome, installed, knownVaults, Policy, Vault } from "./engine";
 import type SettingsSyncPlugin from "./main";
 
 export class SyncSettingTab extends PluginSettingTab {
 	private filter = "";
+	private partialOpen = false;
 	private typed = "";
 
 	constructor(app: App, private plugin: SettingsSyncPlugin) {
@@ -91,13 +92,20 @@ export class SyncSettingTab extends PluginSettingTab {
 		this.itemRow("Themes", this.count(themes, "theme", vaults), "themes", themes, vaults);
 		this.itemRow("CSS snippets", this.count(snippets, "snippet", vaults), "snippets", snippets, vaults);
 
-		const plugins = entries.filter((e) => e.item.group === "plugin").map((e) => e.item);
+		// Plugins every vault has can sync; the others are listed apart, to install where missing.
+		const ids = [...new Set(entries.filter((e) => e.item.group === "plugin").map((e) => e.item.plugin as string))];
+		const everywhere = (id: string) => vaults.every((v) => installed(v.root, id));
+		const shared = ids.filter(everywhere);
+		const partial = ids.filter((id) => !everywhere(id) && vaults.some((v) => installed(v.root, id)));
+
 		this.section(
 			"Community plugins",
-			"Settings copies the plugin's options (its data.json, which can hold API keys). Plugin files copies the plugin itself, so it gets installed or updated in the other vaults.",
-			plugins.map((i) => i.key),
+			vaults.length > 1
+				? "Plugins installed in every vault. Settings copies the plugin's options (its data.json, which can hold API keys). Same version keeps the plugin itself the same everywhere."
+				: "Add a vault above to choose which plugins to sync.",
+			shared.flatMap((id) => [`plugin:${id}`, `plugin-files:${id}`]),
 		);
-		if (plugins.length > 12) {
+		if (shared.length > 12) {
 			new Setting(containerEl).addSearch((q) =>
 				q.setPlaceholder("Filter plugins…").setValue(this.filter).onChange((v) => {
 					this.filter = v.toLowerCase();
@@ -107,7 +115,17 @@ export class SyncSettingTab extends PluginSettingTab {
 				}),
 			);
 		}
-		for (const id of [...new Set(plugins.map((i) => i.plugin as string))]) this.pluginRow(id, byId, vaults);
+		if (vaults.length > 1 && !shared.length) containerEl.createEl("p", { cls: "vss-muted", text: "No plugin is installed in every vault yet." });
+		for (const id of shared) this.pluginRow(id, byId, vaults);
+
+		if (vaults.length > 1 && partial.length) {
+			const details = containerEl.createEl("details", { cls: "vss-partial" });
+			if (this.partialOpen) details.open = true;
+			details.ontoggle = () => (this.partialOpen = details.open);
+			details.createEl("summary", { text: `Not in every vault (${partial.length})` });
+			details.createEl("p", { cls: "vss-muted", text: "Install a plugin where it's missing to sync it. Installing copies it from a vault that has it and turns it on." });
+			for (const id of partial) this.installRow(details, id, byId, vaults);
+		}
 	}
 
 	private vaultSection(vaults: Vault[], missing: string[]): void {
@@ -212,17 +230,32 @@ export class SyncSettingTab extends PluginSettingTab {
 		}));
 	}
 
+	private installRow(parent: HTMLElement, id: string, byId: Map<string, Entry>, vaults: Vault[]): void {
+		const label = byId.get(`plugin:${id}`)?.item.label ?? id;
+		const has = vaults.filter((v) => installed(v.root, id)).map((v) => v.name);
+		const row = new Setting(parent).setName(label).setDesc(`${id} · installed in ${has.join(", ")}`);
+		vaults.forEach((v, i) => {
+			if (installed(v.root, id)) return;
+			row.addButton((b) =>
+				b.setButtonText(`Install in ${v.name}`).onClick(async () => {
+					b.setDisabled(true);
+					await this.plugin.install(vaults, id, i);
+					this.display();
+				}),
+			);
+		});
+	}
+
 	private pluginRow(id: string, byId: Map<string, Entry>, vaults: Vault[]): void {
 		const data = byId.get(`plugin:${id}`);
 		const code = byId.get(`plugin-files:${id}`);
 		if (!data || !code) return;
-		const where = vaults.filter((_, i) => code.sides[i].hash).map((v) => v.name);
-		const setting = new Setting(this.containerEl).setName(data.item.label).setDesc(`${id} · installed in ${where.join(", ") || "none"}`);
+		const setting = new Setting(this.containerEl).setName(data.item.label).setDesc(id);
 		setting.settingEl.addClass("vss-plugin-row");
 		setting.settingEl.dataset.search = `${data.item.label} ${id}`.toLowerCase();
 		if (this.filter && !setting.settingEl.dataset.search.includes(this.filter)) setting.settingEl.hide();
 		this.status(setting.nameEl, [data, code], vaults);
-		for (const [entry, label] of [[data, "Settings"], [code, "Plugin files"]] as const) {
+		for (const [entry, label] of [[data, "Settings"], [code, "Same version"]] as const) {
 			setting.controlEl.createSpan({ cls: "vss-toggle-label", text: label });
 			setting.addToggle((t) => t.setValue(this.plugin.isSelected(entry.item)).onChange(async (v) => {
 				this.plugin.settings.selected[entry.item.key] = v;

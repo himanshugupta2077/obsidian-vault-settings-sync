@@ -65,7 +65,6 @@ describe("discover", () => {
 		const items = discover([a.root, b.root], "self");
 		assert.deepEqual(items.map((i) => i.id), [
 			"core:app.json",
-			"core:community-plugins.json",
 			"core:daily-notes.json",
 			"theme:Minimal",
 			"snippet:wide.css",
@@ -186,11 +185,32 @@ describe("sync between vaults", () => {
 
 	it("copies only a plugin's code as plugin files, not its caches", () => {
 		const [a, b] = [vault("a"), vault("b")];
+		put(a, "plugins/calendar/manifest.json", "{}");
 		put(a, "plugins/calendar/main.js", "code");
 		put(a, "plugins/calendar/cache.json", "x");
-		sync([a, b], {});
+		put(b, "plugins/calendar/manifest.json", "{}");
+		// b has its own, different copy, so the first sync asks; keep a's.
+		const entries = sync([a, b], {}, { pick: { "plugin-files:calendar": 0 } });
+		assert.equal(find(entries, "plugin-files:calendar").conflict, true);
 		assert.equal(read(b, "plugins/calendar/main.js"), "code");
 		assert.equal(existsSync(join(b.root, "plugins/calendar/cache.json")), false);
+	});
+
+	it("never installs a plugin or its settings in a vault that doesn't have it", () => {
+		const [a, b] = [vault("a"), vault("b")];
+		put(a, "plugins/calendar/manifest.json", "{}");
+		put(a, "plugins/calendar/main.js", "code");
+		put(a, "plugins/calendar/data.json", "{}");
+		const entries = sync([a, b], {});
+		assert.deepEqual(find(entries, "plugin-files:calendar").targets, []);
+		assert.deepEqual(find(entries, "plugin:calendar").targets, []);
+		assert.equal(find(entries, "plugin:calendar").reason, "In sync");
+		assert.equal(existsSync(join(b.root, "plugins/calendar")), false);
+
+		// Once it's installed there, its settings follow.
+		put(b, "plugins/calendar/manifest.json", "{}");
+		assert.deepEqual(find(sync([a, b], {}), "plugin:calendar").targets, [1]);
+		assert.equal(read(b, "plugins/calendar/data.json"), "{}");
 	});
 });
 

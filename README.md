@@ -21,24 +21,29 @@ Vaults can live anywhere on your computer, in any folder or on any drive, includ
 | | Default |
 |---|---|
 | **Obsidian settings**: editor & files (`app.json`), appearance, hotkeys, enabled core plugins, graph, property types, and each core plugin's settings (daily notes, templates…) | **on** |
-| **Enabled community plugins** (`community-plugins.json`) | off |
 | **Themes** and **CSS snippets** | off |
 | **Each community plugin's settings** (`data.json`) | off |
-| **Each community plugin's files** (`main.js`, `manifest.json`, `styles.css`), which installs or updates the plugin in the other vaults | off |
+| **Each community plugin's version** (`main.js`, `manifest.json`, `styles.css`) | off |
 
-Every community plugin found in any of the vaults is listed, each with its own two switches.
+## Community plugins
 
-These never sync: open tabs, the sidebar layout and saved workspaces (`workspace*.json`), and the plugins' own caches and logs.
+The plugin list shows the plugins installed in **every** vault, each with two switches: **Settings** and **Same version**.
+
+Plugins that only some vaults have are tucked under **Not in every vault**. Each one has an **Install in <vault>** button that copies the plugin from a vault that has it and turns it on there. A vault that's open picks it up straight away; any other vault turns it on the next time it opens. Once a plugin is in every vault, it moves up to the main list, where you can sync its settings.
+
+Syncing never installs a plugin by itself. A plugin's settings and version only go to vaults that already have it.
+
+These never sync: open tabs, the sidebar layout and saved workspaces (`workspace*.json`), the list of enabled community plugins (each vault keeps its own), and the plugins' own caches and logs.
 
 ## How it decides
 
 For each item, the plugin remembers what each vault's copy looked like the last time it synced. That tells it which vault changed the item:
 
 - **One vault changed it** → its copy goes to all the other vaults.
-- **A vault doesn't have it** → that vault gets a copy. Vaults end up with every theme, snippet and plugin you picked.
+- **A vault doesn't have it** → that vault gets a copy. Vaults end up with every theme and snippet, if you picked them.
 - **Several vaults changed it, or the vaults differ the first time they sync** → it asks. Open **Preview** and choose whose copy to keep. You can also set it to keep the newest copy, or always this vault's.
 
-Deletions never spread. If you remove a snippet or plugin from one vault, it stays removed there, and the other vaults keep theirs.
+Deletions never spread. If you remove a snippet or theme from one vault, it stays removed there, and the other vaults keep theirs.
 
 ## When it runs
 

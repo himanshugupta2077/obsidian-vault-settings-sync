@@ -10,7 +10,7 @@
 // item after syncing it is left without it.
 
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -47,6 +47,8 @@ export interface Side {
 	hash: string;
 	/** Newest modified time among the item's files. */
 	mtime: number;
+	/** The item's plugin isn't installed in this vault, so it neither gives nor gets a copy. */
+	out?: boolean;
 }
 
 export interface Entry {
@@ -63,15 +65,16 @@ export interface Entry {
 	reason: string;
 }
 
-/** Vault-specific files that never sync: open tabs, sidebar layout, saved workspaces. */
-const SKIP_ROOT = new Set(["workspace.json", "workspace-mobile.json", "workspaces.json", "core-plugins-migration.json"]);
+/** Files that never sync: open tabs, sidebar layout and saved workspaces belong to one vault, and
+ * the list of enabled community plugins only makes sense for the plugins that vault has. Installing
+ * a plugin from the settings turns it on there instead. */
+const SKIP_ROOT = new Set(["workspace.json", "workspace-mobile.json", "workspaces.json", "core-plugins-migration.json", "community-plugins.json"]);
 
 const CORE_LABELS: Record<string, string> = {
 	"app.json": "Editor, files & links",
 	"appearance.json": "Appearance",
 	"hotkeys.json": "Hotkeys",
 	"core-plugins.json": "Enabled core plugins",
-	"community-plugins.json": "Enabled community plugins",
 	"types.json": "Property types",
 	"graph.json": "Graph view",
 	"daily-notes.json": "Daily notes",
@@ -139,8 +142,7 @@ export function discover(roots: string[], self: string): Item[] {
 			detail: file,
 			group: "core",
 			paths: [file],
-			// The enabled list turns plugins on and off everywhere, so it is opt-in.
-			defaultOn: file !== "community-plugins.json",
+			defaultOn: true,
 		});
 	}
 
@@ -177,6 +179,11 @@ function walk(root: string, rel: string, out: string[]): void {
 	else if (st.isFile()) out.push(rel);
 }
 
+/** Whether a community plugin is installed in the vault whose config folder is `root`. */
+export function installed(root: string, plugin: string): boolean {
+	return existsSync(join(root, "plugins", plugin, "manifest.json"));
+}
+
 /** The item's files that exist under `root`, as sorted relative paths. */
 export function files(root: string, item: Item): string[] {
 	const out: string[] = [];
@@ -201,7 +208,7 @@ export function snapshot(root: string, item: Item): Side {
  * that never had the item. A vault that removed the item after syncing it is left alone. */
 export function targetsFor(sides: Side[], last: (string | undefined)[], source: number): number[] {
 	const hash = sides[source].hash;
-	return sides.map((_, i) => i).filter((i) => sides[i].hash !== hash && (sides[i].hash || last[i] === undefined));
+	return sides.map((_, i) => i).filter((i) => !sides[i].out && sides[i].hash !== hash && (sides[i].hash || last[i] === undefined));
 }
 
 const names = (vaults: Vault[], idx: number[]) => idx.map((i) => vaults[i].name).join(", ");
@@ -229,7 +236,7 @@ export function decide(vaults: Vault[], sides: Side[], last: (string | undefined
 	const source = choices[0];
 	const targets = targetsFor(sides, last, source);
 	if (!targets.length) {
-		const removed = sides.map((_, i) => i).filter((i) => !sides[i].hash);
+		const removed = sides.map((_, i) => i).filter((i) => !sides[i].hash && !sides[i].out);
 		return nothing(removed.length ? `In sync; removed in ${names(vaults, removed)}` : "In sync");
 	}
 	const missing = targets.every((t) => !sides[t].hash);
@@ -240,7 +247,8 @@ export function decide(vaults: Vault[], sides: Side[], last: (string | undefined
 /** `last[vault path][item id]` is the hash that vault had after it last synced the item. */
 export function plan(vaults: Vault[], items: Item[], last: Record<string, Record<string, string>>, policy: Policy): Entry[] {
 	return items.map((item) => {
-		const sides = vaults.map((v) => snapshot(v.root, item));
+		// Plugin settings and files only go to vaults that have the plugin; installing is separate.
+		const sides = vaults.map((v) => (item.plugin && !installed(v.root, item.plugin) ? { hash: "", mtime: 0, out: true } : snapshot(v.root, item)));
 		const prev = vaults.map((v) => last[v.path]?.[item.id]);
 		return { item, sides, ...decide(vaults, sides, prev, policy) };
 	});

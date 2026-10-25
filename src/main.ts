@@ -1,7 +1,7 @@
 import { FileSystemAdapter, Modal, Notice, Plugin, ViewState, WorkspaceLeaf } from "obsidian";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { backup, copyItem, discover, Entry, expandHome, Item, plan, Policy, pruneBackups, targetsFor, Vault } from "./engine";
+import { backup, copyItem, discover, Entry, expandHome, installed, Item, plan, Policy, pruneBackups, targetsFor, Vault } from "./engine";
 import { SyncSettingTab } from "./settings";
 
 export interface Settings {
@@ -37,6 +37,7 @@ interface InternalApp {
 		enabledPlugins: Set<string>;
 		disablePlugin(id: string): Promise<void>;
 		enablePlugin(id: string): Promise<void>;
+		enablePluginAndSave(id: string): Promise<void>;
 		loadManifests(): Promise<void>;
 	};
 	commands: { executeCommandById(id: string): boolean };
@@ -231,6 +232,31 @@ export default class SettingsSyncPlugin extends Plugin {
 		if (copied) new Notice(`Settings sync: updated ${copied} item${copied === 1 ? "" : "s"} in ${[...updated].map((i) => vaults[i].name).join(", ")}.`);
 		else if (manual && !failed.length) new Notice("Settings sync: everything is in sync.");
 		if (needsReload) this.offerReload();
+	}
+
+	/** Install a community plugin into vault `target` by copying it from a vault that has it, and turn it on. */
+	async install(vaults: Vault[], plugin: string, target: number): Promise<void> {
+		// Prefer this vault's copy, the one known to work here.
+		const from = vaults.find((v) => installed(v.root, plugin));
+		const item = this.items(vaults).find((i) => i.id === `plugin-files:${plugin}`);
+		if (!from || !item) return;
+		const to = vaults[target];
+		try {
+			copyItem(from.root, to.root, item);
+			if (target === 0) {
+				await this.internal.plugins.loadManifests();
+				await this.internal.plugins.enablePluginAndSave(plugin);
+				new Notice(`Installed and turned on ${item.label}.`);
+			} else {
+				// Turn it on in that vault's list; Obsidian loads it the next time that vault opens.
+				const list = join(to.root, "community-plugins.json");
+				const on: string[] = existsSync(list) ? JSON.parse(readFileSync(list, "utf8")) : [];
+				if (!on.includes(plugin)) writeFileSync(list, JSON.stringify([...on, plugin], null, 2));
+				new Notice(`Installed ${item.label} in ${to.name}. It turns on the next time ${to.name} opens or reloads.`);
+			}
+		} catch (err) {
+			new Notice(`Couldn't install ${item.label} in ${to.name}: ${(err as Error).message}`, 0);
+		}
 	}
 
 	private offerReload(): void {
